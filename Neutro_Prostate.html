@@ -1,0 +1,147 @@
+---
+title: "Neutro_Prostate"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+---
+title: "From scratch"
+author: "Aaron Patterson"
+date: "25/05/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+library("TwoSampleMR")
+library("MendelianRandomization")
+library("utils")
+
+```
+
+##Load exposure data - In this case neutrophil GWAS summary data from Astle et al available on GWAS catalog
+
+
+```{r }
+neutro.path = "/rdsgpfs/general/user/arp119/home/data/"
+Neutrophil.data = read.csv(paste(neutro.path,"27863252-GCST004629-EFO_0004833.h.tsv.gz", sep=""), stringsAsFactors=FALSE, sep="\t")
+```
+##Subset Neutrophil p-values <5x10^-8. For IV assumption 1.
+```{r}
+Neutrophil.iv = Neutrophil.data[Neutrophil.data$p_value <5*10^-8,]
+
+```
+
+###Load outcome data from PRACTICAL Consortium. Summary meta-analysis data for 12 studies in European ancestry
+
+```{r}
+prostate.path = "/rdsgpfs/general/user/arp119/home/data/"
+prostate.data = read.csv(paste(prostate.path,"meta_v3_onco_euro_overall_ChrAll_1_release.txt",
+sep=""),stringsAsFactors=FALSE, sep="\t")
+```
+
+## significant p-values 5x10^-8 for outcome for valid outcome variable
+```{r}
+
+prostate.data = prostate.data[prostate.data$Pvalue<5*10^-8,]
+```
+
+##recode rsid for both exposure and outcome
+```{r}
+colnames(prostate.data)[3]="rsid"
+colnames(Neutrophil.iv)[2]="rsid"
+
+```
+
+##merge datasets by SNP
+
+```{r}
+data.merge=merge(Neutrophil.iv, prostate.data, by="rsid")
+
+```
+##recode merged esposure data to keep track of variables
+```{r}
+colnames(data.merge)[c(6,5)] = c("neut_effectallele","neut_noneffectallele")
+colnames(data.merge)[c(7,22,23)] = c("neut_beta","neut_se","neut_pval")
+colnames(data.merge)[11] = c("neut_eaf")
+```
+
+##recode merged outcome data to keep track of variables
+```{r}
+colnames(data.merge)[c(35,36,38)] = c("prost_effectallele","prost_noneffectallele","prost_eaf_not_aligned")
+colnames(data.merge)[c(41,42,43)] = c("prost_beta_not_aligned","prost_se","prost_pval")
+```
+
+##Convert lower to upper case alleles
+```{r}
+table(data.merge$neut_effectallele == toupper(data.merge$prost_effectallele))
+
+table(data.merge$neut_effectallele == toupper(data.merge$prost_noneffectallele))
+```
+
+
+##Following code for inconsistent values. Not applicable in this case
+
+
+###
+```{r}
+
+###inconsistent=which(data.merge$neuto_effectallele) != data.merge$prost_effectallele& data.merge$neuto_effectallele) != data.merge$prost_noneffectallele)
+###data.merge[inconsistent,]
+###data.merge = data.merge[-inconsistent,]
+```
+##Harmonization of outcome variable
+```{r}
+data.merge$prost_eaf = ifelse(tolower(data.merge$neut_effectallele) == data.merge$prost_effectallele,
+data.merge$prost_eaf_not_aligned, 1-data.merge$prost_eaf_not_aligned)
+```
+
+##Pruning
+```{r}
+colnames(data.merge)[1]="SNP"
+colnames(data.merge)[23]="pval.exposure"
+```
+##Clumping 0.001
+```{r}
+data.clump = clump_data(data.merge)
+dim(data.clump)
+```
+##Variables for MR
+```{r message=FALSE, warning=FALSE}
+
+rs = data.clump$SNP
+neut_beta = data.clump$neut_beta
+neut_se = data.clump$neut_se
+prost_beta = data.clump$prost_beta
+prost_se = data.clump$prost_se
+```
+##Performing MR with IVW output
+```{r message=FALSE, warning=FALSE}
+mr.input = mr_input(bx = neut_beta, bxse = neut_se, by = prost_beta, byse = prost_se, exposure = "NEUT", outcome = "Prostate", snps = rs)
+mr_ivw(mr.input)
+```
+##Weighted IVW
+```{r}
+summary(lm(prost_beta~neut_beta -1, weights=prost_se^(-2)))
+```
+## Plot
+```{r}
+mr_plot(mr.input, interactive=FALSE)
+```
+## Sensitivity analysis
+```{r}
+mr_allmethods(mr.input)
+```
+##Plot of all methods
+```{r}
+mr_plot(mr_allmethods(mr.input, method = "main"))
+```
+
+
