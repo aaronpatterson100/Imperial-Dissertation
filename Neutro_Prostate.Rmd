@@ -1,0 +1,142 @@
+---
+title: "Neutro_Prostate"
+output: html_document
+---
+
+---
+title: "From scratch"
+author: "Aaron Patterson"
+date: "25/05/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+library("TwoSampleMR")
+library("MendelianRandomization")
+```
+
+## 
+
+
+```{r }
+neutro.path = "/rdsgpfs/general/user/arp119/home/data/"
+Neutrophil.data = read.csv(paste(neutro.path,"27863252-GCST004629-EFO_0004833.h.tsv.gz", sep=""), stringsAsFactors=FALSE, sep="\t")
+```
+
+```{r}
+Neutrophil.iv = Neutrophil.data[Neutrophil.data$p_value <5*10^-8,]
+
+```
+
+###Outcome data
+
+```{r}
+prostate.path = "/rdsgpfs/general/user/arp119/home/data/"
+prostate.data = read.csv(paste(prostate.path,"meta_v3_onco_euro_overall_ChrAll_1_release.txt",
+sep=""),stringsAsFactors=FALSE, sep="\t")
+```
+
+significant p-values 5x10^-8 for outcome
+```{r}
+colnames(prostate.data)[2]="variant"
+
+prostate.data = prostate.data[prostate.data$Pvalue<5*10^-8,]
+```
+
+### recode rs
+```{r}
+colnames(prostate.data)[3]="SNP"
+colnames(Neutrophil.iv)[2]="SNP"
+
+```
+
+### merge datasets
+
+```{r}
+data.merge=merge(Neutrophil.iv, prostate.data, by="SNP")
+
+```
+### merge esposure data
+```{r}
+colnames(data.merge)[c(6,5)] = c("neut_effectallele","neut_noneffectallele")
+colnames(data.merge)[c(7,22,23)] = c("neut_beta","neut_se","neut_pval")
+colnames(data.merge)[11] = c("neut_eaf")
+```
+
+### merge outcome data
+```{r}
+colnames(data.merge)[c(35,36,38)] = c("prost_effectallele","prost_noneffectallele","prost_eaf_not_aligned")
+colnames(data.merge)[c(41,42,43)] = c("prost_beta_not_aligned","prost_se","prost_pval")
+```
+
+
+
+### Convert lower to upper case alleles
+```{r}
+table(data.merge$neut_effectallele == toupper(data.merge$prost_effectallele))
+
+table(data.merge$neut_effectallele == toupper(data.merge$prost_noneffectallele))
+```
+
+
+### Inconsistent 
+
+
+###
+```{r}
+
+data.merge$prost_beta = ifelse(tolower(data.merge$neut_effectallele) == data.merge$prost_effectallele, data.merge$prost_beta_not_aligned, -1*data.merge$prost_beta_not_aligned)
+```
+###
+```{r}
+data.merge$prost_eaf = ifelse(tolower(data.merge$neut_effectallele) == data.merge$prost_effectallele,
+data.merge$prost_eaf_not_aligned, 1-data.merge$prost_eaf_not_aligned)
+```
+
+### Pruning
+```{r}
+colnames(data.merge)[1]="SNP"
+colnames(data.merge)[23]="pval.exposure"
+```
+### Clumping
+```{r}
+data.clump = clump_data(data.merge)
+dim(data.clump)
+```
+```{r message=FALSE, warning=FALSE}
+
+rs = data.clump$SNP
+neut_beta = data.clump$neut_beta
+neut_se = data.clump$neut_se
+prost_beta = data.clump$prost_beta
+prost_se = data.clump$prost_se
+```
+
+```{r message=FALSE, warning=FALSE}
+mr.input = mr_input(bx = neut_beta, bxse = neut_se, by = prost_beta, byse = prost_se, exposure = "NEUT", outcome = "Prostate", snps = rs)
+mr_ivw(mr.input)
+```
+### Weighted IVW
+```{r}
+summary(lm(prost_beta~neut_beta -1, weights=prost_se^(-2)))
+```
+### Plot
+```{r}
+mr_plot(mr.input, interactive=FALSE)
+```
+### Sensitivity
+```{r}
+mr_allmethods(mr.input)
+```
+### Plot
+```{r}
+mr_plot(mr_allmethods(mr.input, method = "main"))
+```
+
+
