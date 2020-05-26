@@ -1,0 +1,143 @@
+---
+title: "Lymph_Prostate"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+---
+
+---
+title: "From scratch"
+author: "Aaron Patterson"
+date: "25/05/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+library("TwoSampleMR")
+library("MendelianRandomization")
+library("R.utils")
+library("MendelianRandomization")
+```
+
+##Load exposure data - In this case Lymphocyte GWAS summary data from Astle et al available on GWAS catalog
+
+
+```{r }
+lymphro.path = "/rdsgpfs/general/user/arp119/home/data/"
+Lymphocyte.data = read.csv(paste(lymphro.path,"27863252-GCST004627-EFO_0004587.h.tsv.gz", sep=""), stringsAsFactors=FALSE, sep="\t")
+```
+##Subset Lymphocyte p-values <5x10^-8. For IV assumption 1.
+```{r}
+Lymphocyte.iv = Lymphocyte.data[Lymphocyte.data$p_value <5*10^-8,]
+
+```
+
+###Load outcome data from PRACTICAL Consortium. Summary meta-analysis data for 12 studies in European ancestry
+
+```{r}
+prostate.path = "/rdsgpfs/general/user/arp119/home/data/"
+prostate.data = read.csv(paste(prostate.path,"meta_v3_onco_euro_overall_ChrAll_1_release.txt",
+sep=""),stringsAsFactors=FALSE, sep="\t")
+```
+
+## significant p-values 5x10^-8 for outcome for valid outcome variable
+```{r}
+
+prostate.data = prostate.data[prostate.data$Pvalue<5*10^-8,]
+```
+
+##recode rsid for both exposure and outcome
+```{r}
+colnames(prostate.data)[3]="rs"
+colnames(Lymphocyte.iv)[2]="rs"
+
+```
+
+##merge datasets by SNP
+
+```{r}
+data.merge=merge(Lymphocyte.iv, prostate.data, by="rs")
+
+```
+##recode merged esposure data to keep track of variables
+```{r}
+colnames(data.merge)[c(6,5)] = c("lymph_effectallele","lymph_noneffectallele")
+colnames(data.merge)[c(7,22,23)] = c("lymph_beta","lymph_se","lymph_pval")
+colnames(data.merge)[11] = c("lymph_eaf")
+```
+
+##recode merged outcome data to keep track of variables
+```{r}
+colnames(data.merge)[c(35,36,38)] = c("prost_effectallele","prost_noneffectallele","prost_eaf_not_aligned")
+colnames(data.merge)[c(41,42,43)] = c("prost_beta_not_aligned","prost_se","prost_pval")
+```
+
+##Convert lower to upper case alleles
+```{r}
+table(data.merge$lymph_effectallele == toupper(data.merge$prost_effectallele))
+
+table(data.merge$lymph_effectallele == toupper(data.merge$prost_noneffectallele))
+```
+
+
+##Following code for inconsistent values. Not applicable in this case
+```{r}
+
+###inconsistent=which(data.merge$lympho_effectallele) != data.merge$prost_effectallele& data.merge$lympho_effectallele) != data.merge$prost_noneffectallele)
+###data.merge[inconsistent,]
+###data.merge = data.merge[-inconsistent,]
+```
+##Harmonization of outcome variable
+```{r}
+data.merge$prost_eaf = ifelse(tolower(data.merge$lymph_effectallele) == data.merge$prost_effectallele,
+data.merge$prost_eaf_not_aligned, 1-data.merge$prost_eaf_not_aligned)
+```
+
+##Pruning
+```{r}
+colnames(data.merge)[1]="SNP"
+colnames(data.merge)[23]="pval.exposure"
+```
+##Clumping 0.001
+```{r}
+data.clump = clump_data(data.merge)
+dim(data.clump)
+```
+##Variables for MR
+```{r}
+
+rs = data.clump$SNP
+lymph_beta = data.clump$lymph_beta
+lymph_se = data.clump$lymph_se
+prost_beta = data.clump$prost_beta
+prost_se = data.clump$prost_se
+```
+##Performing MR with IVW output
+```{r, echo=FALSE}
+mr.input = mr_input(bx = lymph_beta, bxse = lymph_se, by = prost_beta, byse = prost_se, exposure = "lymph", outcome = "Prostate", snps = rs)
+mr_ivw(mr.input)
+```
+##Weighted IVW
+```{r, echo=FALSE}
+summary(lm(prost_beta~lymph_beta -1, weights=prost_se^(-2)))
+```
+## Plot
+```{r, echo=FALSE}
+mr_plot(mr.input, interactive=FALSE)
+```
+## Sensitivity analysis
+```{r, echo=FALSE}
+mr_allmethods(mr.input)
+```
+##Plot of all methods
+```{r, echo=FALSE}
+mr_plot(mr_allmethods(mr.input, method = "main"))
+```
+
