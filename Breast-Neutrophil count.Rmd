@@ -1,0 +1,127 @@
+---
+title: "Neutrophil count vs breast cancer"
+author: "Aaron Patterson"
+date: "19/05/2020"
+output: html_document
+---
+
+```{r}
+library(MendelianRandomization)
+library(TwoSampleMR)
+library(MRInstruments)
+```
+
+
+## data catalogue GWAS summary stats
+```{r}
+data("gwas_catalog")
+```
+
+
+
+### Exposure selection
+
+
+```{r}
+
+###exposure_gwas <- subset(gwas_catalog, grepl("Astle", Author))
+
+exposure_gwas <- subset(gwas_catalog, grepl("Astle", Author) &
+                     Phenotype_simple == "Neutrophil count")
+
+```
+
+```{r}
+
+
+head(exposure_gwas[,c(7:12,18:21)])
+```
+#### Excluding exposure values >5*10^8
+```{r}
+exposure_gwas<-exposure_gwas[exposure_gwas$pval<5*10^-8,]
+```
+
+```{r}
+head(exposure_gwas[,c(7:12,18:21)])
+exposure_data<-format_data(exposure_gwas)
+
+
+```
+####Clumping data
+```{r}
+exposure_data<-clump_data(exposure_data, clump_r2 = 0.001)
+
+```
+#### Outcome selection
+
+```{r}
+ao<-available_outcomes()
+head(ao)
+```
+###Select trait
+```{r}
+outcome_gwas <- subset(ao, grepl("Breast cancer", trait))
+head(outcome_gwas)
+```
+##Selecting the exposure data
+```{r}
+outcome_data <- extract_outcome_data(
+    snps = exposure_data$SNP, outcomes = "ieu-a-1126")
+```
+###Harmonize data
+
+```{r}
+H_data <- harmonise_data(
+    exposure_dat = exposure_data, 
+    outcome_dat = outcome_data
+)
+```
+
+
+###MR analysis
+```{r}
+mr_results<-mr(H_data)
+mr_results
+```
+
+###CI generation
+```{r}
+generate_odds_ratios(mr_results)
+
+```
+
+##Sensitivity
+```{r}
+mr_pleiotropy_test(H_data)
+
+```
+###Hetergeneity
+```{r}
+mr_heterogeneity(H_data, method_list=c("mr_egger_regression", "mr_ivw"))
+
+```
+
+###Scatterplot
+```{r}
+plot1 <- mr_scatter_plot(mr_results, H_data)
+plot1
+```
+#### Forest Plot individual SNPs
+```{r}
+res_single <- mr_singlesnp(H_data)
+plot2 <- mr_forest_plot(res_single)
+plot2
+```
+
+###Leave one out analysis
+```{r}
+res_loo <- mr_leaveoneout(H_data)
+plot3 <- mr_leaveoneout_plot(res_loo)
+plot3
+```
+#### Funnel plot heterogeneity
+```{r}
+plot4 <- mr_funnel_plot(res_single)
+plot4
+```
+
